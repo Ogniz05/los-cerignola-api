@@ -1,0 +1,14 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # ❌ Non riscrivere le richieste alle API
+    RewriteCond %{REQUEST_URI} ^/api/ [NC]
+    RewriteRule ^ - [L]
+
+    # Se la richiesta non è per un file o directory esistente...
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    # ...reindirizza tutto a index.php (React)
+    RewriteRule . index.php [L]
+</IfModule>
+
