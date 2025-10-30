@@ -187,32 +187,64 @@ class OrderController
         }
     }
 
-    /* ------------------------------------------------------- */
-    /* 💰 SIMULA PAGAMENTO ORDINE                              */
-    /* ------------------------------------------------------- */
-    public function payOrder($orderId)
-    {
-        if (!$orderId) {
-            http_response_code(400);
-            echo json_encode(['error' => 'ID ordine mancante']);
+/* ------------------------------------------------------- */
+/* 💰 SIMULA PAGAMENTO ORDINE + ASSEGNA PUNTI              */
+/* ------------------------------------------------------- */
+public function payOrder($orderId)
+{
+    if (!$orderId) {
+        http_response_code(400);
+        echo json_encode(['error' => 'ID ordine mancante']);
+        return;
+    }
+
+    try {
+        $this->pdo->beginTransaction();
+
+        // 1️⃣ Recupera dati ordine
+        $stmt = $this->pdo->prepare("SELECT user_id, total_amount FROM orders WHERE id = ?");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$order) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Ordine non trovato']);
             return;
         }
 
-        try {
-            // 💰 Simula pagamento → elimina l’ordine
-            $stmt = $this->pdo->prepare("DELETE FROM orders WHERE id = ?");
-            $stmt->execute([$orderId]);
+        $userId = $order['user_id'];
+        $total = (float)$order['total_amount'];
 
-            if ($stmt->rowCount() > 0) {
-                http_response_code(200);
-                echo json_encode(['success' => true, 'message' => 'Ordine pagato e rimosso']);
-            } else {
-                http_response_code(404);
-                echo json_encode(['error' => 'Ordine non trovato']);
-            }
-        } catch (PDOException $e) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Errore durante il pagamento: ' . $e->getMessage()]);
+        // 2️⃣ Se l'ordine è associato a un utente, assegna punti fedeltà
+        if (!empty($userId)) {
+            $points = (int)floor($total); // 1 punto per ogni euro speso
+
+            $updatePoints = $this->pdo->prepare("
+                UPDATE users 
+                SET loyalty_points = loyalty_points + ? 
+                WHERE id = ?
+            ");
+            $updatePoints->execute([$points, $userId]);
         }
+
+        // 3️⃣ Elimina l’ordine (pagato)
+        $delete = $this->pdo->prepare("DELETE FROM orders WHERE id = ?");
+        $delete->execute([$orderId]);
+
+        $this->pdo->commit();
+
+        http_response_code(200);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Ordine pagato e rimosso',
+            'earned_points' => isset($points) ? $points : 0
+        ]);
+
+    } catch (PDOException $e) {
+        $this->pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(['error' => 'Errore durante il pagamento: ' . $e->getMessage()]);
     }
+}
+
 }
